@@ -80,6 +80,7 @@ export function Label({ children, htmlFor }: { children: React.ReactNode; htmlFo
 const badgeStyles: Record<string, string> = {
   draft: "bg-canvas text-muted border border-line",
   scheduled: "bg-brand-soft text-brand",
+  publishing: "bg-warn-soft text-warn",
   published: "bg-success-soft text-success",
   failed: "bg-danger-soft text-danger",
 };

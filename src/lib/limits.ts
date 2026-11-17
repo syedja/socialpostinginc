@@ -1,26 +1,21 @@
 /**
- * Platform metadata: Upload-Post slugs, labels, and character limits.
+ * Platforms we publish to directly, with labels and caption limits.
  *
- * ⚠️ Limits are approximate and drift over time (X in particular varies by
- * account tier). Verify against each platform's current docs periodically.
+ * ⚠️ Limits are approximate and change over time. Verify against each
+ * platform's current docs periodically.
  */
 export interface Platform {
-  slug: string;          // Upload-Post platform identifier
+  slug: "facebook" | "instagram" | "google_business";
   label: string;
-  limit: number;         // max caption/body characters
-  accent: string;        // brand-ish dot color for UI chips
-  requiresMedia: boolean; // platform can't accept text-only posts
+  limit: number;          // max caption/body characters
+  accent: string;         // dot color for UI chips
+  requiresMedia: boolean; // can't publish text-only
 }
 
 export const PLATFORMS: Platform[] = [
-  { slug: "facebook",        label: "Facebook Page",   limit: 63206, accent: "#1877F2", requiresMedia: false },
-  { slug: "instagram",       label: "Instagram",       limit: 2200,  accent: "#E1306C", requiresMedia: true },
-  { slug: "linkedin",        label: "LinkedIn",        limit: 3000,  accent: "#0A66C2", requiresMedia: false },
-  { slug: "x",               label: "X (Twitter)",     limit: 280,   accent: "#111111", requiresMedia: false },
-  { slug: "threads",         label: "Threads",         limit: 500,   accent: "#333333", requiresMedia: false },
-  { slug: "pinterest",       label: "Pinterest",       limit: 500,   accent: "#E60023", requiresMedia: true },
-  { slug: "tiktok",          label: "TikTok",          limit: 2200,  accent: "#00C2B3", requiresMedia: true },
-  { slug: "google_business", label: "Google Business", limit: 1500,  accent: "#34A853", requiresMedia: false },
+  { slug: "facebook",        label: "Facebook Page",            limit: 63206, accent: "#1877F2", requiresMedia: false },
+  { slug: "instagram",       label: "Instagram",                limit: 2200,  accent: "#E1306C", requiresMedia: true },
+  { slug: "google_business", label: "Google Business Profile",  limit: 1500,  accent: "#34A853", requiresMedia: false },
 ];
 
 export function platformBySlug(slug: string) {

@@ -4,7 +4,7 @@ import { ButtonLink, Card, StatusBadge } from "@/components/ui";
 import { formatInTz } from "@/lib/utils";
 import { platformBySlug } from "@/lib/limits";
 import { PostActions } from "@/components/PostActions";
-import { reconcileDuePosts } from "@/lib/reconcile";
+import { ImportTryWeek } from "@/components/ImportTryWeek";
 
 export const metadata = { title: "Dashboard — Social Posting Inc." };
 
@@ -28,17 +28,13 @@ export default async function DashboardPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Sync any past-due scheduled posts with what actually happened on
-  // Upload-Post before rendering, so statuses are never stale.
-  await reconcileDuePosts(supabase, user!.id);
-
   const [{ data: profile }, { data: posts }, counts] = await Promise.all([
     supabase.from("profiles").select("timezone, full_name").eq("id", user!.id).single(),
     supabase
       .from("posts")
       .select("*")
       .eq("user_id", user!.id)
-      .eq("status", tab)
+      .in("status", tab === "scheduled" ? ["scheduled", "publishing"] : [tab])
       .order(tab === "published" ? "published_at" : "scheduled_at", {
         ascending: tab === "scheduled",
         nullsFirst: false,
@@ -50,7 +46,7 @@ export default async function DashboardPage({
           .from("posts")
           .select("id", { count: "exact", head: true })
           .eq("user_id", user!.id)
-          .eq("status", t.key);
+          .in("status", t.key === "scheduled" ? ["scheduled", "publishing"] : [t.key]);
         return [t.key, count ?? 0] as const;
       })
     ),
@@ -61,6 +57,7 @@ export default async function DashboardPage({
 
   return (
     <div>
+      <ImportTryWeek />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">
@@ -148,8 +145,25 @@ export default async function DashboardPage({
                 {post.error_message && (
                   <p className="mt-2 text-xs text-danger">{post.error_message}</p>
                 )}
+                {post.status === "published" && post.results && (
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    {Object.values(post.results as Record<string, { status: string; name: string; url?: string }>)
+                      .filter((r) => r.status === "published" && r.url)
+                      .map((r) => (
+                        <a key={r.url} href={r.url} target="_blank" rel="noreferrer" className="text-brand underline">
+                          View on {r.name}
+                        </a>
+                      ))}
+                  </div>
+                )}
               </div>
-              <PostActions id={post.id} status={post.status} />
+              <PostActions
+                id={post.id}
+                status={post.status}
+                content={post.content}
+                imageUrl={(post.media_urls ?? []).find((u: string) => !/\.(mp4|mov|m4v|webm)(\?|$)/i.test(u))}
+                canRetry={post.status === "failed" || (post.status === "published" && !!post.error_message)}
+              />
             </div>
           </Card>
         ))}

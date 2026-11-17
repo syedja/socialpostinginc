@@ -6,6 +6,7 @@ import Image from "next/image";
 import { PLATFORMS, effectiveLimit, mediaRequiredPlatforms } from "@/lib/limits";
 import { localToUtcIso, cn } from "@/lib/utils";
 import { Button, Card, Label } from "@/components/ui";
+import { ShareToWhatsApp } from "@/components/ShareToWhatsApp";
 
 const EMOJIS = ["😀","😂","😍","🥳","🔥","✨","💪","👏","🙌","❤️","💯","🎉","☕","🍕","🍔","🥗","🛍️","💈","🏋️","🏡","🚗","🦷","📅","📣","👇","➡️","✅","⭐","🌟","🎁"];
 
@@ -75,6 +76,31 @@ export function Composer({
   const [showMedia, setShowMedia] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+
+  async function writeWithAi() {
+    setError(null);
+    let idea = "";
+    if (!content.trim()) {
+      idea = window.prompt("What's this post about? (e.g. \"Friday fish special, $2 off before 6pm\")") ?? "";
+      if (!idea.trim()) return;
+    }
+    setAiBusy(true);
+    try {
+      const res = await fetch("/api/ai/caption", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea, current: content, platforms: selected }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "AI writing failed");
+      setContent(data.caption);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI writing failed");
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   const used = content.length;
   const tightest = effectiveLimit(selected);
@@ -123,7 +149,7 @@ export function Composer({
         ? await fetch(`/api/posts/${existing.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...payload, scheduledAt: scheduledIso, clientId }),
+            body: JSON.stringify({ ...payload, scheduledAt: action === "draft" ? scheduledIso : payload.scheduledAt }),
           })
         : await fetch("/api/posts", {
             method: "POST",
@@ -197,6 +223,9 @@ export function Composer({
           className="w-full resize-y rounded-lg border border-line bg-surface p-3 text-sm leading-relaxed placeholder:text-faint focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" type="button" onClick={writeWithAi} disabled={aiBusy}>
+            {aiBusy ? "Writing…" : content.trim() ? "✨ Improve with AI" : "✨ Write with AI"}
+          </Button>
           <Button variant="secondary" size="sm" type="button" onClick={() => setShowEmoji(!showEmoji)} aria-expanded={showEmoji}>
             😊 Emoji
           </Button>
@@ -294,6 +323,11 @@ export function Composer({
         <Button variant="secondary" onClick={() => submit("draft")} disabled={!!busy}>
           {busy === "draft" ? "Saving…" : "Save as draft"}
         </Button>
+        <ShareToWhatsApp
+          size="md"
+          text={content}
+          imageUrl={mediaUrls.find((u) => !/\.(mp4|mov|m4v|webm)(\?|$)/i.test(u))}
+        />
       </div>
     </div>
   );

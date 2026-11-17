@@ -1,67 +1,74 @@
 # Social Posting Inc.
 
-Social media scheduling SaaS. Next.js 15 · Tailwind v4 · Supabase (Auth, Postgres, Storage) · Upload-Post · Stripe · Vercel.
+Social media posting for local businesses. Next.js 15 · Tailwind v4 · Supabase (Auth, Postgres, Storage, Cron) · Stripe · Vercel.
+Posts go **directly** to Facebook Pages, Instagram and Google Business Profile through their official APIs: no third-party posting service and no per-client fees. Runs on free tiers to start (Vercel Hobby + Supabase Free).
 
-## Architecture
+## What's in it
 
-- **Auth**: Supabase Auth — email/password + Google OAuth, session refresh in `src/middleware.ts`.
-- **Publishing**: Upload-Post. One Upload-Post *profile* per customer; the profile username IS the customer's Supabase user id (no extra key stored). Customers link their own accounts via Upload-Post's hosted white-label page — you never touch their credentials. White-label is included from Upload-Post's **Professional plan** up (verify current pricing at upload-post.com/pricing).
-- **Scheduling**: delegated to Upload-Post's `scheduled_date` (returns a `job_id`). **No cron job needed** — runs on Vercel Hobby.
-- **Editing a scheduled post**: cancel job + re-create (`PATCH /api/posts/[id]`). Cancel = `DELETE /uploadposts/schedule/{job_id}`.
-- **Media routing**: video → `/upload`, photos (up to 10, by URL) → `/upload_photos`, text-only → `/upload_text`. Instagram/TikTok/Pinterest require media — enforced in the composer AND the API.
-- **Facebook/Pinterest targets**: first Page/board is auto-selected server-side.
-- **Plan gating**: publishing/scheduling requires an `active` or `trialing` Stripe subscription. Drafts are always free.
-- **Managed plan ($399)**: emails in `ADMIN_EMAILS` see a **Clients** page listing all customers, and can compose/schedule/edit/cancel on any client's behalf (service-role, explicitly scoped). Self-serve ($29) customers do everything themselves.
-- **Billing**: Stripe Checkout (14-day trial) + Customer Portal + webhook → `subscriptions` table.
+- **Free preview, no signup** (`/try`): a visitor enters business name, type and town and gets 7 ready-to-post captions (AI if `ANTHROPIC_API_KEY` is set, otherwise built-in templates for 7 industries). "Keep these 7 posts" carries them through signup into their Drafts.
+- **14-day trial without a card**, then Starter $19 / Growth $49 / Done for you $299 via Stripe.
+- **Connect accounts** with Facebook Login (Pages + linked Instagram professional accounts) and Google sign-in (Business Profile locations). Tokens are AES-256-GCM encrypted in a table only the server can read.
+- **Composer**: pick platforms, write or "✨ Write with AI", attach media, publish now or schedule.
+- **Scheduler**: `/api/cron/publish`, called every minute by Supabase pg_cron. Claims due posts with `FOR UPDATE SKIP LOCKED` so nothing is sent twice; Instagram videos that are still processing are finished on the next run.
+- **Per-account results**: links to each live post, clear error reasons, and a **Retry** button that only resends to the accounts that failed.
+- **Share to WhatsApp** on every post (opens WhatsApp with caption and photo; WhatsApp has no official API for Status or Channel posts).
+- **Clients page** for admins (`ADMIN_EMAILS`) to post on behalf of Done-for-you clients.
 
-## Setup (in order)
+## Setup, in order
 
-### 1. Supabase
-1. Create project → SQL Editor → run `supabase/migrations/001_init.sql`, then `002_upload_post.sql`.
-2. Auth → Providers: enable Email + Google (Google Cloud OAuth client needed).
-3. Auth → URL Configuration: Site URL + `https://socialpostinginc.com/auth/callback` redirect.
-4. Copy URL, anon key, service-role key → `.env.local`.
+### 1. Supabase (free)
+1. Create a project. SQL Editor → run each file in `supabase/migrations/` **one at a time, in order** (001 → 006). Run **004 by itself** before 005.
+   - Already ran 001–003 for the old version? Just run 004, 005, 006.
+2. Before running **006**, replace `YOUR_APP_URL` and `YOUR_CRON_SECRET` in it.
+3. Auth → URL Configuration: Site URL = your app URL; add `https://YOUR_APP_URL/auth/callback` as a redirect.
+4. Project settings → API: copy URL, anon key, service-role key.
 
-### 2. Upload-Post
-1. Create account → app.upload-post.com/api-keys → copy key to `UPLOADPOST_API_KEY`.
-2. Plan: free tier = 10 uploads/mo (fine for testing). For customers, you need a paid plan with enough **profiles** (1 per customer) and white-label (Professional+). Approx (verify!): ~$24/mo → 5 profiles, ~$50/mo → 25.
-3. ⚠️ Endpoints in `src/lib/social-provider.ts` were verified against their official SDK v2.9.0 and docs (Aug 2026) — but do one real end-to-end test before launch.
+### 2. Meta (Facebook + Instagram)
+1. developers.facebook.com → your app → add **Facebook Login** (or Facebook Login for Business) and the Pages / Instagram use cases.
+2. Valid OAuth redirect URI: `https://YOUR_APP_URL/api/connect/meta/callback`
+3. Permissions the app asks for (override with `META_SCOPES`): `pages_show_list, pages_read_engagement, pages_manage_posts, instagram_basic, instagram_content_publish, business_management`. Meta renames permissions from time to time, so check them against your app dashboard.
+4. **Until App Review approves these permissions, only people listed as admins/developers/testers on the app can connect.** That's enough to demo with your own Page. Submit for review once the app is live; reviewers want the privacy policy (`/privacy`), terms (`/terms`), a screencast of connecting and posting, and a business portfolio.
+5. Instagram must be a Business or Creator account linked to the Facebook Page.
 
-### 3. Stripe
-1. Two recurring Prices: $29 (self_serve), $399 (managed) → IDs in `.env.local`.
-2. Webhook endpoint `https://YOURDOMAIN/api/stripe/webhook`, events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
-3. Enable Customer Portal.
+### 3. Google Business Profile
+1. console.cloud.google.com → new project → enable **My Business Account Management API**, **My Business Business Information API** and **Google My Business API**.
+2. OAuth consent screen + OAuth client (Web). Redirect URI: `https://YOUR_APP_URL/api/connect/google/callback`. Scope: `https://www.googleapis.com/auth/business.manage`.
+3. **Apply for Business Profile API access** (Google's form). Until approved, the API quota is 0 and connecting/posting fails with a permission or quota error.
 
-### 4. Env + deploy
+### 4. Stripe
+1. Three monthly Prices: $19 (Starter), $49 (Growth), $299 (Done for you) → IDs into the env vars.
+2. Webhook `https://YOUR_APP_URL/api/stripe/webhook` with `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Enable the Customer Portal.
+
+### 5. Vercel
+1. Import this repo, set the branch, add **every** variable from `.env.example`.
+2. Domain: add `app.socialpostinginc.com` in Vercel, then in Hostinger DNS add the record Vercel shows you.
+3. Redeploy after changing env vars.
+
+### Local development
 ```bash
-cp .env.example .env.local  # fill everything, incl. ADMIN_EMAILS=your@email
-npm install && npm run dev  # verify locally first
+cp .env.example .env.local   # fill it in
+npm install && npm run dev
 ```
-Deploy: push to GitHub → import in Vercel → add ALL env vars → set `NEXT_PUBLIC_APP_URL` to production URL → point Hostinger DNS (A 76.76.21.21, CNAME www → cname.vercel-dns.com).
+Trigger the scheduler by hand: `curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/publish`
 
-## Pre-launch verification checklist (do with REAL accounts)
+## Launch checklist (with real accounts)
+- [ ] `/try` → 7 posts appear → "Keep these 7 posts" → sign up → posts are in Drafts
+- [ ] Connected accounts → Connect Facebook & Instagram → Page and Instagram appear
+- [ ] Connect Google → location appears (needs Google API access approved)
+- [ ] Publish now: text post to Facebook; photo post to Facebook + Instagram + Google
+- [ ] Schedule a post 5 minutes out → it goes out within a minute of its time (proves the cron)
+- [ ] Instagram Reel (MP4) → shows "processing", then published within a few minutes
+- [ ] Turn an account Off → posts skip it. Disconnect → token deleted
+- [ ] Break something (e.g. PNG to Instagram) → Failed tab shows the reason → Retry
+- [ ] Share to WhatsApp on a phone → WhatsApp opens with caption and photo
+- [ ] Stripe test checkout → subscription row becomes `active`
 
-Self-serve ($29) flow:
-- [ ] Sign up (email + Google) → dashboard loads
-- [ ] Billing → choose Self-Serve → Stripe test checkout → webhook writes `subscriptions` row (`trialing`)
-- [ ] Connected accounts → Connect → Upload-Post hosted page → link 1 real platform → returns to /accounts showing "Connected"
-- [ ] Compose text post → Publish now → appears on the platform
-- [ ] Compose with image from Media library → Schedule 10 min out → fires on time
-- [ ] Edit the scheduled post (content + time) → old job cancelled, new one fires
-- [ ] Cancel a scheduled post → does not fire
-- [ ] Save draft → edit draft → publish
-- [ ] Calendar shows scheduled + published on correct days in user timezone
-- [ ] Without subscription: publish attempt shows the "start your trial" message
+## Verified here vs. not
+Verified: `tsc` and `next build` pass; token encryption round-trips; Facebook/Instagram request formats checked against Meta's docs with a fake Graph server.
+Not verified (needs live credentials): real posting to each platform, Google API access, Supabase cron calling the app, Stripe webhooks.
 
-Managed ($399) flow:
-- [ ] Your email in ADMIN_EMAILS → "Clients" appears in sidebar
-- [ ] Open client → Compose for client banner shows → schedule a post → lands on client's account
-- [ ] Client sees the scheduled post in THEIR dashboard/calendar
-
-Verified in build environment: `tsc --noEmit` and `next build` pass (19 routes). NOT verified here (no live credentials): actual Upload-Post publishing, Google OAuth round-trip, Stripe webhooks — hence the checklist above.
-
-## Known v1 constraints
-- One video OR up to 10 photos per post (not both) — Upload-Post constraint.
-- Facebook posts go to the customer's **first** Page; Pinterest to first board. Multi-page selection is a fast follow.
-- Text-only posts can't go to Instagram/TikTok/Pinterest (platform rules) — the UI explains this.
-- Character limits in `limits.ts` are approximate; X strips URLs from captions (their pricing rule).
+## Known limits
+- Instagram needs at least one photo or video, and accepts JPEG photos.
+- Google posts use the first photo only; videos aren't sent to Google.
+- The `/try` rate limit is per server instance (best effort).
+- Starter vs Growth limits (number of Pages/locations) aren't enforced in code yet.

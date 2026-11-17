@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/admin";
-import { publishPost, ensureProfile } from "@/lib/social-provider";
 import { canPublish, isAdminEmail } from "@/lib/access";
 import { mediaRequiredPlatforms } from "@/lib/limits";
+import { publishClaimedPost, type PostRow } from "@/lib/social/publisher";
+
+export const maxDuration = 60;
 
 /**
  * POST /api/posts
  * body: { content, platforms, mediaUrls, scheduledAt (UTC ISO | null), action, clientId? }
  * action: "draft" | "schedule" | "publish"
- * clientId: admin-only — compose on behalf of a Managed-plan client.
+ * clientId: admin-only — compose on behalf of a Done-for-you client.
  *
- * Scheduling is delegated to Upload-Post's scheduled_date, so no cron job is
- * required (Vercel Hobby plan compatible).
+ * "schedule" saves the post; the every-minute scheduler sends it when due.
+ * "publish" sends it right away from this request.
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -31,8 +33,6 @@ export async function POST(request: Request) {
     clientId?: string;
   };
 
-  // Admin acting on behalf of a client (Managed plan). All DB writes then use
-  // the service client, scoped explicitly to the client's user id.
   const actingForClient = !!clientId && clientId !== user.id;
   if (actingForClient && !isAdminEmail(user.email)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
@@ -40,7 +40,6 @@ export async function POST(request: Request) {
   const targetUserId = actingForClient ? clientId! : user.id;
   const db = actingForClient ? createServiceClient() : supabase;
 
-  // ── Validation ──────────────────────────────────────────
   if (action !== "draft") {
     if (!content?.trim() && !mediaUrls?.length) {
       return NextResponse.json({ error: "Write something or attach media first." }, { status: 400 });
@@ -48,8 +47,11 @@ export async function POST(request: Request) {
     if (!platforms?.length) {
       return NextResponse.json({ error: "Choose at least one platform." }, { status: 400 });
     }
-    if (action === "schedule" && !scheduledAt) {
-      return NextResponse.json({ error: "Pick a date and time to schedule." }, { status: 400 });
+    if (action === "schedule") {
+      if (!scheduledAt) return NextResponse.json({ error: "Pick a date and time to schedule." }, { status: 400 });
+      if (new Date(scheduledAt).getTime() < Date.now() - 60_000) {
+        return NextResponse.json({ error: "That time is in the past. Pick a future time or publish now." }, { status: 400 });
+      }
     }
     const needMedia = mediaRequiredPlatforms(platforms);
     if (needMedia.length && !mediaUrls?.length) {
@@ -60,95 +62,47 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    // Plan gate: the person being posted for needs an active/trialing plan.
     const gate = await canPublish(db, targetUserId);
     if (!gate.ok) return NextResponse.json({ error: gate.reason }, { status: 402 });
   }
 
-  // ── Draft: no provider call ─────────────────────────────
-  if (action === "draft") {
-    const { data, error } = await db
-      .from("posts")
-      .insert({
-        user_id: targetUserId,
-        content: content ?? "",
-        platforms: platforms ?? [],
-        media_urls: mediaUrls ?? [],
-        status: "draft",
-        scheduled_at: scheduledAt,
-      })
-      .select()
-      .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ post: data });
-  }
+  const now = new Date().toISOString();
+  const { data: post, error } = await db
+    .from("posts")
+    .insert({
+      user_id: targetUserId,
+      content: content ?? "",
+      platforms: platforms ?? [],
+      media_urls: mediaUrls ?? [],
+      status: action === "draft" ? "draft" : action === "publish" ? "publishing" : "scheduled",
+      scheduled_at: action === "publish" ? now : scheduledAt,
+      locked_at: action === "publish" ? now : null,
+      attempts: action === "publish" ? 1 : 0,
+    })
+    .select()
+    .single();
+  if (error || !post) return NextResponse.json({ error: error?.message ?? "Could not save" }, { status: 500 });
 
-  // ── Schedule / publish via Upload-Post ──────────────────
-  try {
-    await ensureProfile(targetUserId);
-    const result = await publishPost({
-      user: targetUserId,
-      content,
-      platforms,
-      mediaUrls: mediaUrls ?? [],
-      scheduledAt: action === "schedule" ? scheduledAt : null,
+  if (action !== "publish") return NextResponse.json({ post });
+
+  const admin = createServiceClient();
+  const status = await publishClaimedPost(admin, post as PostRow);
+  const { data: final } = await admin.from("posts").select("*").eq("id", post.id).single();
+
+  if (status === "failed") {
+    return NextResponse.json(
+      { post: final, error: final?.error_message ?? "Publishing failed on every selected platform." },
+      { status: 502 }
+    );
+  }
+  if (status === "scheduled") {
+    return NextResponse.json({
+      post: final,
+      warning: "Instagram is still processing your video. It will finish posting within a few minutes.",
     });
-
-    // Scheduled posts haven't run yet — nothing to verify, always "scheduled".
-    // Immediate posts: check what actually happened per platform.
-    let finalStatus: "scheduled" | "published" | "failed" = "scheduled";
-    let errorMessage: string | null = null;
-    let warning: string | null = null;
-
-    if (action === "publish") {
-      if (result.results === null) {
-        // Upload-Post hadn't resolved within our poll window. Mark published
-        // optimistically (most posts do succeed) but flag it for a manual check.
-        finalStatus = "published";
-        errorMessage =
-          "Still processing on Upload-Post's side — check app.upload-post.com if it doesn't appear shortly.";
-      } else {
-        const failed = result.results.filter((r) => !r.success);
-        if (failed.length === result.results.length) {
-          finalStatus = "failed";
-          errorMessage = failed.map((f) => `${f.platform}: ${f.message ?? "failed"}`).join("; ");
-        } else if (failed.length > 0) {
-          finalStatus = "published";
-          errorMessage = failed.map((f) => `${f.platform}: ${f.message ?? "failed"}`).join("; ");
-          warning = `Posted to ${result.results.length - failed.length} of ${result.results.length} platforms. ${errorMessage}`;
-        } else {
-          finalStatus = "published";
-        }
-      }
-    }
-
-    const { data, error } = await db
-      .from("posts")
-      .insert({
-        user_id: targetUserId,
-        content,
-        platforms,
-        media_urls: mediaUrls ?? [],
-        status: finalStatus,
-        scheduled_at: action === "schedule" ? scheduledAt : null,
-        published_at: finalStatus === "published" ? new Date().toISOString() : null,
-        provider_post_id: result.providerId || null,
-        provider_kind: result.kind,
-        error_message: errorMessage,
-      })
-      .select()
-      .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    if (finalStatus === "failed") {
-      return NextResponse.json(
-        { post: data, error: errorMessage ?? "Publishing failed on every selected platform." },
-        { status: 502 }
-      );
-    }
-    return NextResponse.json({ post: data, warning: warning ?? undefined });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Publishing failed";
-    return NextResponse.json({ error: message }, { status: 502 });
   }
+  return NextResponse.json({
+    post: final,
+    warning: final?.error_message ? `Posted, but some accounts failed: ${final.error_message}` : undefined,
+  });
 }
