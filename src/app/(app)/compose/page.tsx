@@ -55,7 +55,7 @@ export default async function ComposePage({
     <div>
       {actingForClient && (
         <p className="mb-4 rounded-lg bg-brand-soft px-3 py-2 text-sm text-brand">
-          Composing on behalf of <strong>{profile?.full_name || profile?.email}</strong> (Managed plan)
+          Composing on behalf of <strong>{profile?.full_name || profile?.email}</strong> (Done for you)
         </p>
       )}
       <h1 className="text-2xl font-semibold">{existing ? "Edit post" : "New post"}</h1>

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui";
 import { platformBySlug } from "@/lib/limits";
-import { reconcileDuePosts } from "@/lib/reconcile";
 
 export const metadata = { title: "Calendar — Social Posting Inc." };
 
@@ -34,8 +33,6 @@ export default async function CalendarPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  await reconcileDuePosts(supabase, user!.id);
 
   const { data: profile } = await supabase
     .from("profiles")

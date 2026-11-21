@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/admin";
 import { isAdminEmail } from "@/lib/access";
 import { ButtonLink, Card } from "@/components/ui";
+import { planName } from "@/lib/plans";
 
 export const metadata = { title: "Clients — Social Posting Inc." };
 
@@ -29,7 +30,7 @@ export default async function AdminPage() {
     <div>
       <h1 className="text-2xl font-semibold">Clients</h1>
       <p className="mt-1 text-sm text-muted">
-        Managed-plan workflow: open a client to compose and schedule posts on their behalf.
+        Done-for-you workflow: open a client to compose and schedule posts on their behalf.
       </p>
 
       <div className="mt-6 space-y-3">
@@ -46,7 +47,7 @@ export default async function AdminPage() {
                   {sub ? (
                     <>
                       <span className={isManaged ? "rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand" : "rounded-full bg-canvas px-2 py-0.5 text-xs text-muted"}>
-                        {isManaged ? "Managed $399" : "Self-Serve $29"}
+                        {planName(sub.plan)}
                       </span>
                       <span className={activeSub ? "rounded-full bg-success-soft px-2 py-0.5 text-xs text-success" : "rounded-full bg-danger-soft px-2 py-0.5 text-xs text-danger"}>
                         {sub.status}

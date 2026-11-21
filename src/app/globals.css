@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 @theme {
-  /* Palette — deep teal accent (growth, local storefront energy) on a cool
-     neutral canvas. Deliberately not the generic SaaS-blue or warm-cream
-     AI-design defaults. */
-  --color-canvas: #f6f7f5;
+  /* Palette — matches the approved Social Posting Inc. design: confident
+     blue on a warm off-white canvas, with an orange highlight. */
+  --color-accent: #f2a65a;
+  --color-canvas: #fbfaf7;
   --color-surface: #ffffff;
-  --color-ink: #10221c;
-  --color-muted: #5c6b64;
-  --color-faint: #97a49d;
-  --color-line: #e2e8e4;
-  --color-brand: #0f6e56;
-  --color-brand-hover: #0b5744;
-  --color-brand-soft: #e7f3ee;
+  --color-ink: #14161a;
+  --color-muted: #4a4f58;
+  --color-faint: #6b707a;
+  --color-line: #e7e4dc;
+  --color-brand: #1f4fd8;
+  --color-brand-hover: #163ba6;
+  --color-brand-soft: #e8eefc;
   --color-success: #2f7d4f;
   --color-success-soft: #eaf5ee;
   --color-warn: #b45309;

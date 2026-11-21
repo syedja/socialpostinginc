@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PLANS, type PlanKey } from "@/lib/stripe";
+import { PLANS, planName, type PlanKey } from "@/lib/plans";
 import { Button, Card } from "@/components/ui";
 
 export function BillingPlans({
@@ -64,7 +64,7 @@ export function BillingPlans({
             {daysLeft !== null && daysLeft > 0
               ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
               : "Your trial ends today"}
-            {currentPlan && ` · trying the ${PLANS[currentPlan as PlanKey]?.name ?? currentPlan} features`}
+            {currentPlan && ` · trying the ${planName(currentPlan)} plan`}
           </p>
           <p className="mt-1 text-xs text-muted">
             No card on file yet. Pick a plan below whenever you're ready — you'll keep whatever's left of your trial.
@@ -76,7 +76,7 @@ export function BillingPlans({
         <Card className="mb-6 flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium">
-              Current plan: {currentPlan ? PLANS[currentPlan as PlanKey]?.name ?? currentPlan : "—"}
+              Current plan: {planName(currentPlan)}
             </p>
             <p className="mt-0.5 text-xs text-muted">Manage payment method, invoices, or cancel anytime.</p>
           </div>
@@ -92,12 +92,13 @@ export function BillingPlans({
         <p role="alert" className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-3">
         {(Object.entries(PLANS) as [PlanKey, (typeof PLANS)[PlanKey]][]).map(([key, plan]) => {
           const isCurrent = isActive && currentPlan === key;
           return (
             <Card key={key} className={key === "managed" ? "border-brand p-6" : "p-6"}>
               <h3 className="text-lg font-semibold">{plan.name}</h3>
+              <p className="mt-1 text-sm text-muted">{plan.blurb}</p>
               <p className="mt-2">
                 <span className="text-3xl font-semibold">${plan.price}</span>
                 <span className="text-muted">/month</span>

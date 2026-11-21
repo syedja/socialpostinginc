@@ -6,9 +6,9 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const grotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-grotesk" });
 
 export const metadata: Metadata = {
-  title: "Social Posting Inc. — Schedule social posts in minutes",
+  title: "Social Posting Inc. — Fresh posts for your business, every day",
   description:
-    "Lightweight social media scheduling for small businesses. Plan, schedule, and publish to Facebook, Instagram, LinkedIn, X, and more.",
+    "Social media posting for local businesses. AI-written posts for Facebook, Instagram and Google Business Profile, scheduled automatically. See your first week free.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
